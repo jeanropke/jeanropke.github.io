@@ -11,8 +11,9 @@ _manifest.json
 # Used to make development easier.
 cycles_update/
 fme/
+!assets/images/fme
 rdo/
 
-# Our credentials, don't bother removing this, you won't get our stuff. ;-)
-.env
-crowdin.yml
+# Remove map tiles from Github
+assets/maps/jpg
+assets/maps/webp
