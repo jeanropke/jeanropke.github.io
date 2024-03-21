@@ -46,7 +46,7 @@ class Loader {
 
 const urls = [
     'data/animal_legendary.json',
-    'data/cycles.json',
+    'https://jeanropke.github.io/RDR2CollectorsMap/data/cycles.json',
     'data/fasttravels.json',
     'data/filters.json',
     'data/items_value.json',
