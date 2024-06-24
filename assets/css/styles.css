@@ -1,9 +1,15 @@
+:root {
+    --default-content-font: Hapna;
+    --default-title-font: RDRLino;
+    --content-font: var(--default-content-font), serif;
+    --title-font: var(--default-title-font), serif;
+}
+
 @font-face {
     font-family: Hapna;
     src: url(../fonts/hapna.woff2) format("woff2"), url(../fonts/hapna.woff) format("woff"), url(../fonts/hapna.ttf) format("truetype");
     font-style: normal;
     font-weight: 400;
-    text-rendering: optimizeLegibility;
 }
 
 @font-face {
@@ -11,7 +17,6 @@
     src: url(../fonts/RDRLino-Regular.woff2) format("woff2"), url(../fonts/RDRLino-Regular.woff) format("woff"), url(../fonts/RDRLino-Regular.ttf) format("truetype");
     font-style: normal;
     font-weight: 400;
-    text-rendering: optimizeLegibility;
 }
 
 *,
@@ -37,8 +42,9 @@ body {
 body {
     margin: 0;
     font-size: 16px;
-    font-family: Hapna, serif;
+    font-family: var(--content-font);
     line-height: 1.42857143;
+    text-rendering: optimizeLegibility;
 }
 
 .h1,.h2,.h3,.h4,.h5,.h6,h1,h2,h3,h4,h5,h6 {
@@ -125,8 +131,9 @@ select {
 }
 
 #main-header-center>span {
-    font-family: RDRLino, serif;
+    font-family: var(--title-font);
     font-weight: normal;
+    text-rendering: optimizeLegibility;
 }
 
 #main-header-left,
@@ -236,8 +243,9 @@ select {
     width: 100%;
     width: 100vw;
     height: 100%;
-    font-family: Hapna, serif;
+    font-family: var(--content-font);
     font-size: 13px;
+    text-rendering: optimizeLegibility;
 }
 
 #map h1 {
@@ -319,12 +327,14 @@ select {
 
 .marker-popup-pin-input-name,
 .marker-popup-pin-input-desc {
+    color: inherit;
     border: none;
     width: 100%;
     background-color: #222;
 }
 
 .marker-popup-pin-input-name {
+    font-weight: inherit;
     text-align: center;
 }
 
@@ -344,6 +354,7 @@ select {
 
 .marker-popup-pin-input-icon,
 .marker-popup-pin-input-color {
+    color: inherit;
     background: #eee;
     border: none;
     padding: 5px 10px;
@@ -1118,6 +1129,11 @@ a.no-style:visited {
     color: #fff !important;
 }
 
+.leaflet-container .leaflet-control-attribution,
+.leaflet-container .leaflet-control-scale {
+	font-size: 11px;
+}
+
 .text-danger {
     color: #f95050 !important;
 }
@@ -1255,10 +1271,11 @@ a.no-style:visited {
 }
 
 .modal h4 {
-    font-family: RDRLino, serif;
+    font-family: var(--title-font);
     font-weight: normal;
     font-size: 24px;
     line-height: 1;
+    text-rendering: optimizeLegibility;
 }
 
 .modal-body {
@@ -1267,8 +1284,11 @@ a.no-style:visited {
 }
 
 .modal-body .settings-container {
-    font-size: 13px !important;
     margin-top: 15px;
+}
+
+.modal-body #custom-markers-colors {
+    font-size: 13px;
 }
 
 .modal-actions .btn {
@@ -1503,6 +1523,7 @@ a.no-style:visited {
     left: 0.1em;
     font-family: 'Courier New', Courier, monospace;
     text-transform: uppercase;
+    text-rendering: optimizeLegibility;
 }
 
 /* Dark mode styling */
@@ -1615,6 +1636,18 @@ a.no-style:visited {
     user-select: none;
 }
 
+.leaflet-control-layers label {
+	font-size: inherit;
+}
+
+.leaflet-control-layers-toggle {
+	background-image: url(../images/layers.png);
+}
+
+.leaflet-retina .leaflet-control-layers-toggle {
+	background-image: url(../images/layers-2x.png);
+}
+
 .leaflet-control-layers-expanded {
     color: #d4d4d4;
     background: #333;
@@ -1668,9 +1701,17 @@ a.no-style:visited {
     height: auto;
 }
 
+.leaflet-container .leaflet-marker-pane img {
+    width: auto;
+}
+
+.leaflet-container .leaflet-marker-pane img.overlay {
+    width: 100%;
+}
+
 .leaflet-div-icon .icon {
     z-index: 4;
-    width: 100%;
+    width: 100% !important;
     height: auto;
 }
 
@@ -1696,6 +1737,7 @@ a.no-style:visited {
     z-index: 1;
     bottom: -2px;
     left: 9px;
+    box-shadow: none !important;
 }
 
 /* Donate form */
@@ -1754,7 +1796,7 @@ a.no-style:visited {
 }
 
 #fme-container .fme-card .fme-body .fme-title {
-    font-family: RDRLino, serif;
+    font-family: var(--title-font);
     color: #7b66af;
     margin: 0;
     text-align: left;
@@ -1765,6 +1807,7 @@ a.no-style:visited {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-rendering: optimizeLegibility;
 }
 
 #fme-container .fme-card .fme-body .fme-text {
