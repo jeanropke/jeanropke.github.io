@@ -3,6 +3,8 @@ const MapBase = {
   maxZoom: 7,
   map: null,
   markers: [],
+  fuseOnSearch: null,
+  fuseOnQuerySuggestions: null,
   overlays: [],
   lootTables: [],
   fastTravelData: [],
@@ -97,10 +99,10 @@ const MapBase = {
             that.closePopup();
           }, 100);
 
-          document.addEventListener('DOMContentLoaded', function() {
-            document.querySelector('.leaflet-popup').addEventListener('mouseover', function mouseOverHandler(e) {
+          document.querySelectorAll('.leaflet-popup').forEach(el => {
+            el.addEventListener('mouseover', function mouseOverHandler(e) {
               clearTimeout(timeout);
-              document.querySelector('.leaflet-popup').removeEventListener('mouseover', this);
+              el.removeEventListener('mouseover', mouseOverHandler);
             });
           });
         });
@@ -117,8 +119,8 @@ const MapBase = {
       zoomControl: false,
       crs: L.CRS.Simple,
       layers: [mapLayers[this.themeOverride || Settings.baseLayer]],
-      zoomSnap: false,
-      zoomDelta: (this.maxZoom - this.minZoom) / ((this.maxZoom - this.minZoom) * 2),
+      zoomSnap: 0,
+      zoomDelta: 0.5,
       wheelPxPerZoomLevel: 70,
       wheelDebounceTime: 150,
     }).setView([this.viewportX, this.viewportY], this.viewportZoom);
@@ -130,8 +132,9 @@ const MapBase = {
       })
     );
 
-    L.control.zoom({
-      position: 'bottomright'
+    new L.Control.ZoomEx({
+      position: "bottomright",
+      className: "leaflet-zoomex-rightbottom",
     }).addTo(MapBase.map);
 
     L.control.layers(mapLayers).addTo(MapBase.map);
@@ -276,6 +279,16 @@ const MapBase = {
     Layers.overlaysLayer.addTo(MapBase.map);
   },
 
+  setColoris: function () {
+    Coloris({
+      el: '.coloris',
+      themeMode: 'dark',
+      swatchesOnly: true,
+      swatches: Object.keys(colorNameMap),
+      alpha: false,
+    });
+  },
+
   setFallbackFonts: async function () {
     const fontsData = {
       ja: {
@@ -362,6 +375,8 @@ const MapBase = {
   afterLoad: function () {
     'use strict';
     uniqueSearchMarkers = MapBase.markers;
+    MapBase.initFuse();
+    MapBase.setColoris();
 
     // Preview mode.
     const previewParam = getParameterByName('q');
@@ -373,7 +388,8 @@ const MapBase = {
       document.querySelector('.filter-alert').remove();
       document.getElementById('fme-container').remove();
       document.querySelector('.side-menu').classList.remove('menu-opened');
-      document.querySelector('.leaflet-top.leaflet-right, .leaflet-control-zoom').remove();
+      document.querySelector('.leaflet-top.leaflet-right').remove();
+      document.querySelector('.leaflet-zoomex.leaflet-zoomex-rightbottom.leaflet-control').remove();
 
       const isValidCategory = categories.includes(previewParam);
       if (isValidCategory) {
@@ -385,8 +401,8 @@ const MapBase = {
       } else {
         enabledCategories = [];
         MapBase.addMarkers(false, true);
-        document.getElementById('search').value = previewParam;
-        MapBase.onSearch(previewParam);
+        searchInput.value = previewParam;
+        MapBase.onSearch(previewParam, true);
 
         // Zoom in if there's only one specific item.
         const visibleItems = MapBase.markers.filter(m => m.isVisible);
@@ -407,8 +423,8 @@ const MapBase = {
     // Do search via URL.
     const searchParam = getParameterByName('search');
     if (searchParam) {
-      document.getElementById('search').value = searchParam;
-      MapBase.onSearch(searchParam);
+      searchInput.value = searchParam;
+      MapBase.onSearch(searchParam, true);
     }
 
     // Navigate to marker via URL.
@@ -452,8 +468,23 @@ const MapBase = {
 
     localStorage.setItem('rdr2collector.date', date);
   },
+  
+  initFuse: function() {
+    const dataForSearch = MapBase.markers.map((marker) => ({
+      itemId: marker.itemId,
+      itemTranslationKey: Language.get(marker.itemTranslationKey).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    }));
+    const dataForQuerySuggestions = [
+      ...new Set(
+        MapBase.markers.map((marker) => Language.get(marker.itemTranslationKey))
+      )
+    ].map((name) => ({ name }));
 
-  onSearch: function (searchString) {
+    this.fuseOnSearch = new Fuse(dataForSearch, { keys: ['itemTranslationKey'], threshold: 0.4 });
+    this.fuseOnQuerySuggestions = new Fuse(dataForQuerySuggestions, { keys: ['name'], threshold: 0.6 });
+  },
+
+  onSearch: function (searchString, immediate = false) {
     Menu.toggleFilterWarning('map.has_search_filter_alert', !!searchString);
 
     // Wait 500ms before search items to do not search not full term
@@ -464,8 +495,8 @@ const MapBase = {
         ...new Set(searchString
           .replace(/^[;\s]+|[;\s]+$/g, '')
           .split(';')
-          .filter(element => element)
-          .map(term => term.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+          .filter((element) => element)
+          .map((term) => term.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
         )
       ];
 
@@ -476,23 +507,24 @@ const MapBase = {
       }
 
       Layers.itemMarkersLayer.clearLayers();
-      uniqueSearchMarkers = MapBase.markers.filter(marker =>
-        searchTerms.some(term =>
+      uniqueSearchMarkers = MapBase.markers.filter((marker) =>
+        searchTerms.some((term) =>
           marker.itemId === term ||
           marker.itemNumberStr === term ||
           Language.get(marker.itemTranslationKey).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(term)
         )
       );
 
-      if (!uniqueSearchMarkers.length) {
-        const markerNames = MapBase.markers.map(marker =>
-          Language.get(marker.itemTranslationKey).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        )
-        searchTerms.forEach(term => {
-          const bestMatch = stringSimilarity.findBestMatch(term, markerNames);
-          if (bestMatch.bestMatch.rating < 0.6) return;
-          const bestMatchItemId = MapBase.markers[bestMatch.bestMatchIndex].itemId;
-          uniqueSearchMarkers.push(...MapBase.markers.filter(marker => bestMatchItemId === marker.itemId));
+      if (!uniqueSearchMarkers.length && this.fuseOnSearch) {
+        searchTerms.forEach((term) => {
+          const bestMatches = this.fuseOnSearch.search(term);
+          if (bestMatches.length) {
+            uniqueSearchMarkers.push(
+              ...MapBase.markers.filter(
+                (marker) => bestMatches[0].item.itemId === marker.itemId
+              )
+            );
+          }
         });
       }
 
@@ -502,7 +534,50 @@ const MapBase = {
       });
 
       MapBase.addMarkers();
-    }, !!searchString ? 500 : 0);
+    }, immediate ? 0 : (!!searchString ? 500 : 0));
+  },
+
+  onQuerySuggestions: function (searchString) {
+    const queries = searchString
+      .toLowerCase()
+      .split(';')
+      .map((query) => query.trim())
+      .filter(Boolean);
+    const query = queries[queries.length - 1];
+    
+    if (!query) {
+      suggestionsContainer.style.display = 'none';
+      return;
+    }
+
+    if (searchString.endsWith(';')) {
+      suggestionsContainer.innerHTML = '';
+      return;
+    }
+
+    const results = this.fuseOnQuerySuggestions.search(query).slice(0, 15);
+
+    if (!results.length) {
+      suggestionsContainer.style.display = 'none';
+      return;
+    }
+
+    suggestionsContainer.innerHTML = results
+      .map(({item}) => `<div class="query-suggestion">${item.name}</div>`)
+      .join('');
+    suggestionsContainer.style.display = '';
+
+    activeSuggestionIndex = -1;
+  
+    suggestionsContainer.querySelectorAll('.query-suggestion').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        const splitStr = searchString.split(';');
+        const baseStr = splitStr.length > 1 ? splitStr.slice(0, -1).join(';') + '; ' : '';
+        searchInput.value = `${baseStr}${e.target.textContent}; `;
+        suggestionsContainer.style.display = 'none';
+        MapBase.onSearch(searchInput.value, true);
+      });
+    });
   },
 
   addMarkers: function (refreshMenu = false) {

@@ -47,6 +47,7 @@ class Menu {
   }
 
   static reorderMenu(menu) {
+    if (!menu) return;
     Array.from(menu.children)
       .sort((a, b) => a.textContent.toLowerCase().localeCompare(b.textContent.toLowerCase()))
       .forEach((child) => menu.appendChild(child));
@@ -100,10 +101,10 @@ class Menu {
         .replace('{count}', (max ? (count / max * 100) : 0).toFixed(2));
 
     const itemsValue = document.getElementById('items-value');
-    if (itemsValue)
-      itemsValue.textContent = `$${Collection.totalValue().toFixed(2)}`;
-
-    Collection.collections.forEach(collection => collection.updateCounter());
+    if (Collection.collections) {
+      if (itemsValue) itemsValue.textContent = `$${Collection.totalValue().toFixed(2)}`;
+      Collection.collections.forEach(collection => collection.updateCounter());
+    }
   }
 
   static activateHandlers() {
@@ -284,8 +285,16 @@ class Menu {
     });
 
     document.addEventListener('keydown', (event) => {
-      if (event.keyCode === 32 && event.ctrlKey) {
+      if (event.ctrlKey && event.key === ' ') {
         document.querySelector('.menu-toggle').click();
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
+        if (overrideSearch.checked) {
+          event.preventDefault();
+          searchInput.focus();
+          searchInput.select();
+        }
       }
     });
   }

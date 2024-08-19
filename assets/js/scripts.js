@@ -39,6 +39,18 @@ HTMLElement.prototype.propSearchUp = function (property) {
 
 let uniqueSearchMarkers = [];
 
+const colorNameMap = {
+  '#00ffa2': 'aquagreen', '#ffce70': 'beige', '#292929': 'black', '#31a6c7': 'blue',
+  '#7c411f': 'brown', '#416776': 'cadetblue', '#0066a2': 'darkblue', '#627134': 'darkgreen',
+  '#e27839': 'darkorange', '#593769': 'darkpurple', '#a13235': 'darkred', '#444444': 'gray',
+  '#70ae25': 'green', '#88dbff': 'lightblue', '#5e5e5e': 'lightgray', '#a3c62c': 'lightgreen',
+  '#ff8c7d': 'lightorange', '#da4d6d': 'lightred', '#ee9232': 'orange', '#c05b9f': 'pink',
+  '#6b65a4': 'purple', '#d43d29': 'red', '#ffffff': 'white', '#ffcc5c': 'yellow',
+};
+const colorNameToHexMap = Object.fromEntries(
+  Object.entries(colorNameMap).map(([hex, name]) => [name, hex])
+);
+
 const categories = [
   'arrowhead', 'bottle', 'bracelet', 'coastal', 'coin', 'cups', 'earring', 'egg',
   'fast_travel', 'flower', 'fossils_random', 'heirlooms',
@@ -181,11 +193,15 @@ function init() {
   const itemsCollectionsWeekly = Promise.all([mapping, jewelryTimestamps]).then(() => Item.init()); // Item.items (without .markers), Collection.collections, Collection.weekly*
   itemsCollectionsWeekly.then(MapBase.loadOverlays);
   MapBase.mapInit(); // MapBase.map
-  Language.init().then(()=> Pins.init());
+  const languages = Language.init().then(() => Language.setMenuLanguage());
   changeCursor();
+
   // MapBase.markers (without .lMarker), Item.items[].markers
   const markers = Promise.all([itemsCollectionsWeekly, lootTables]).then(Marker.init);
   const cycles = Promise.all([itemsCollectionsWeekly, markers, setMapTime]).then(Cycles.load);
+  markers.then(Marker.createMarkerColorCustomPanel);
+  Promise.all([languages, markers]).then(() => Pins.init());
+  
   Inventory.init();
   MapBase.loadFastTravels();
   const filters = MapBase.loadFilters();
@@ -193,7 +209,7 @@ function init() {
 
   const treasures = Treasure.init();
   const legendaries = Legendary.init();
-  Promise.all([cycles, markers]).then(MapBase.afterLoad);
+  Promise.all([languages, markers, cycles]).then(MapBase.afterLoad);
   Routes.init();
   Promise.all([itemsCollectionsWeekly, markers, cycles, treasures, legendaries, filters])
     .then(Loader.resolveMapModelLoaded);
@@ -203,11 +219,14 @@ function init() {
 
   if (Settings.isMenuOpened) document.querySelector('.menu-toggle').click();
 
+  document.documentElement.style.setProperty('--ctrl-meta-key', detectPlatform() === 'macOS' ? '"⌘"' : '"Ctrl"');
+
   document.querySelectorAll('.map-alert').forEach(alert => { alert.style.display = Settings.alertClosed ? 'none' : '' });
 
   document.getElementById('language').value = Settings.language;
   document.getElementById('marker-opacity').value = Settings.markerOpacity;
   document.getElementById('invisible-removed-markers').checked = Settings.isInvisibleRemovedMarkers;
+  document.getElementById('override-search').checked = Settings.overrideBrowserSearch;
 
   document.getElementById('filter-type').value = Settings.filterType;
   document.getElementById('marker-size').value = Settings.markerSize;
@@ -394,7 +413,12 @@ function clockTick() {
   - only hope: user does not do anything until that happens
 - please move them out of here to their respective owners
 */
-document.querySelector('.side-menu').addEventListener('scroll', function () {
+const sideMenu = document.querySelector('.side-menu');
+const backToTop = document.getElementById('back-to-top');
+const draggableBackToTop = draggify(backToTop, { storageKey: 'rdr2collector.backToTopPosition' });
+let lastScrollY = sideMenu.scrollTop;
+
+sideMenu.addEventListener('scroll', function () {
   // These are not equality checks because of mobile weirdness.
   const atTop = this.scrollTop <= 0;
   const atBottom = this.scrollTop + this.clientHeight >= this.scrollHeight;
@@ -402,6 +426,19 @@ document.querySelector('.side-menu').addEventListener('scroll', function () {
   document.querySelector('.scroller-arrow-tp').style.display = atTop ? 'none' : '';
   document.querySelector('.scroller-line-bt').style.display = atBottom ? '' : 'none';
   document.querySelector('.scroller-arrow-bt').style.display = atBottom ? 'none' : '';
+
+  if (this.scrollTop !== 0 && this.scrollTop < lastScrollY) {
+    backToTop.classList.add('is-visible');
+  } else if (this.scrollTop === 0 || this.scrollTop > lastScrollY) {
+    backToTop.classList.remove('is-visible');
+  }
+  lastScrollY = this.scrollTop;
+});
+
+backToTop.addEventListener('click', () => {
+  if (draggableBackToTop.getDistanceMoved() < 5) {
+    sideMenu.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 });
 
 document.querySelectorAll('.top-widget > p').forEach((p) => {
@@ -419,6 +456,11 @@ document.getElementById('show-all-markers').addEventListener('change', function 
 
 document.getElementById('enable-right-click').addEventListener('change', function () {
   Settings.isRightClickEnabled = this.checked;
+});
+
+const overrideSearch = document.getElementById('override-search');
+overrideSearch.addEventListener('change', function () {
+  Settings.overrideBrowserSearch = this.checked;
 });
 
 document.getElementById('show-utilities').addEventListener('change', function () {
@@ -452,23 +494,111 @@ document.getElementById('enable-debug').addEventListener('change', function () {
 
 document.getElementById('enable-cycle-changer').addEventListener('change', function () {
   Settings.isCycleChangerEnabled = this.checked;
-  document.getElementById('cycle-changer-container').classList.toggle('opened', Settings.isCycleChangerEnabled);
+  document.getElementById('cycle-changer-container').classList.toggle('hidden', !Settings.isCycleChangerEnabled);
   if (!Settings.isCycleChangerEnabled) Cycles.resetCycle();
 });
 
-document.getElementById('search').addEventListener('input', function () {
-  MapBase.onSearch(this.value);
+const searchInput = document.getElementById('search');
+const suggestionsContainer = document.getElementById('query-suggestions');
+const searchContainer = document.querySelector('#search').closest('.input-container');
+const searchHotkey = document.getElementById('search-hotkey');
+const suggestionsHotkeys = document.getElementById('query-suggestions-hotkeys');
+let hideSuggestionsTimeout;
+
+searchInput.addEventListener('input', function () {
+  searchHotkey.style.opacity = searchInput.value ? '0' : '1';
   document.getElementById('filter-type').value = 'none';
+  if (!isMobile()) {
+    suggestionsHotkeys.style.display = searchInput.value.trim() === '' ? '' : 'none';
+    document.querySelectorAll('#weekly-container .header, #weekly-container p').forEach((el) => el.classList.add('blurred'));
+  }
+  
+  MapBase.onSearch(searchInput.value);
+  MapBase.onQuerySuggestions(searchInput.value);
+});
+
+searchInput.addEventListener('focus', function () {
+  if (!isMobile()) {
+    suggestionsHotkeys.classList.toggle('focused', searchInput.value.trim() === '');
+    document.querySelectorAll('#weekly-container .header, #weekly-container p').forEach((el) => el.classList.add('blurred'));
+  }
+  this.addEventListener('keydown', function handleEscKey(event) {
+    if (event.key === 'Escape') {
+      this.blur();
+      this.removeEventListener('keydown', handleEscKey);
+    }
+  });
+});
+
+let activeSuggestionIndex = -1;
+searchInput.addEventListener('keydown', function (e) {
+  const suggestions = suggestionsContainer.querySelectorAll('.query-suggestion');
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+      activeSuggestionIndex = (activeSuggestionIndex + 1) % suggestions.length;
+      suggestionsContainer.classList.add('scroll-visible');
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      activeSuggestionIndex = (activeSuggestionIndex - 1 + suggestions.length) % suggestions.length;
+      suggestionsContainer.classList.add('scroll-visible');
+      break;
+    case 'Enter':
+      if (activeSuggestionIndex > -1 && suggestions.length > 0) {
+        e.preventDefault();
+        suggestions[activeSuggestionIndex].click();
+        this.scrollLeft = this.scrollWidth;
+      }
+      break;
+    default:
+      return;
+  }
+  suggestions.forEach((el, index) => {
+    el.classList.toggle('active', index === activeSuggestionIndex);
+    if (index === activeSuggestionIndex) el.scrollIntoView({ block: 'nearest' });
+  });
+});
+
+searchInput.addEventListener('blur', () => {
+  hideSuggestionsTimeout = setTimeout(() => {
+    if (!isMobile()) {
+      suggestionsHotkeys.classList.remove('focused');
+      document.querySelectorAll('#weekly-container .header, #weekly-container p').forEach((el) => el.classList.remove('blurred'));
+    }
+    suggestionsContainer.style.display = 'none';
+    suggestionsContainer.innerHTML = '';
+  }, 300);
+  suggestionsContainer.classList.remove('scroll-visible');
+});
+
+suggestionsContainer.addEventListener('mouseleave', () => {
+  suggestionsContainer.classList.remove('scroll-visible');
+});
+
+suggestionsContainer.addEventListener('mouseenter', () => {
+  suggestionsContainer.classList.add('scroll-visible');
+});
+
+searchContainer.addEventListener('mouseleave', () => {
+  hideSuggestionsTimeout = setTimeout(() => {
+    suggestionsContainer.style.display = 'none';
+    suggestionsContainer.innerHTML = '';
+  }, 300);
+});
+
+searchContainer.addEventListener('mouseenter', () => {
+  clearTimeout(hideSuggestionsTimeout);
 });
 
 document.getElementById('copy-search-link').addEventListener('click', function () {
-  setClipboardText(`http://jeanropke.github.io/RDR2CollectorsMap/?search=${document.getElementById('search').value}`);
+  setClipboardText(`http://jeanropke.github.io/RDR2CollectorsMap/?search=${searchInput.value}`);
 });
 
 document.getElementById('clear-search').addEventListener('click', function () {
-  const searchInput = document.getElementById('search');
   searchInput.value = '';
   searchInput.dispatchEvent(new Event('input'));
+  document.querySelectorAll('#weekly-container .header, #weekly-container p').forEach((el) => el.classList.remove('blurred'));
 });
 
 document.getElementById('reset-markers').addEventListener('change', function () {
@@ -543,7 +673,10 @@ document.getElementById('timestamps-24').addEventListener('change', function () 
 
 document.getElementById('language').addEventListener('change', function () {
   Settings.language = this.value;
+  if (searchInput.value.trim()) document.getElementById('clear-search').click();
+
   Language.setMenuLanguage();
+  MapBase.initFuse();
   MapBase.setFallbackFonts();
   Menu.refreshMenu();
   Cycles.setLocaleDate();
@@ -737,7 +870,7 @@ document.getElementById('cookie-export').addEventListener('click', function () {
 
     downloadAsFile(`collectible-map-settings-(${exportDate}).json`, settingsJson);
   } catch (error) {
-    // console.error(error);
+    console.error(error);
     alert(Language.get('alerts.feature_not_supported'));
   }
 });
@@ -1043,6 +1176,30 @@ function formatLootTableLevel(table, rate = 1, level = 0) {
   return result;
 }
 
+const videoModalEl = document.getElementById('video-modal');
+const videoFrameEl = document.getElementById('video-frame');
+videoModalEl.addEventListener('show.bs.modal', function (event) {
+  const button = event.relatedTarget;
+
+  const parentDiv = button.firstAncestorOrSelf((node) => node.tagName === 'DIV');
+  document.getElementById('video-modal-title').textContent =
+    parentDiv.querySelector('h1').innerText || Language.get('map.video');
+
+  const url = new URL(button.getAttribute('data-video-url'));
+  if (['youtube', 'youtu.be'].some((value) => url.host.includes(value))) {
+    const videoId = url.hostname === 'youtu.be' ? url.pathname.slice(1) : url.searchParams.get('v');
+    const startTime = parseInt(url.searchParams.get('t'), 10) || 0;
+    videoFrameEl.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&start=${startTime}`;
+  } else if (url.host.includes('bilibili')) {
+    const videoId = url.pathname.split('/')[2];
+    const startTime = url.searchParams.get('t') || 0;
+    videoFrameEl.src = `https://player.bilibili.com/player.html?bvid=${videoId}&high_quality=1&t=${startTime}`;
+  }
+});
+videoModalEl.addEventListener('hidden.bs.modal', function () {
+  videoFrameEl.src = '';
+});
+
 const lootTableModalEl = document.getElementById('loot-table-modal');
 lootTableModalEl.addEventListener('show.bs.modal', function (event) {
   // Get related loot table.
@@ -1064,79 +1221,34 @@ lootTableModalEl.addEventListener('show.bs.modal', function (event) {
 
 const customMarkerColorModal = new bootstrap.Modal(document.getElementById('custom-marker-color-modal'));
 document.getElementById('open-custom-marker-color-modal').addEventListener('click', event => {
-  const markerColors = ['aquagreen', 'beige', 'black', 'blue', 'brown', 'cadetblue', 'darkblue', 'darkgreen', 'darkorange', 'darkpurple', 'darkred', 'gray', 'green', 'lightblue', 'lightgray', 'lightgreen', 'lightorange', 'lightred', 'orange', 'pink', 'purple', 'red', 'white', 'yellow']
-    .sort((...args) => {
-      const [a, b] = args.map(color => Language.get(`map.user_pins.color.${color}`));
-      return a.localeCompare(b, Settings.language, { sensitivity: 'base' });
-    });
-  const baseColors = { arrowhead: 'purple', bottle: 'brown', coin: 'darkorange', egg: 'white', flower: 'red', fossils_random: 'darkgreen', cups: 'blue', swords: 'blue', wands: 'blue', pentacles: 'blue', jewelry_random: 'yellow', bracelet: 'yellow', necklace: 'yellow', ring: 'yellow', earring: 'yellow', heirlooms: 'pink', random: 'lightgray', random_spot_metal_detector_chest: 'lightgray', random_spot_shovel: 'lightgray', random_spot_metal_detector_shallow: 'gray' };
-  const randomCategories = ['random_spot_metal_detector_chest', 'random_spot_metal_detector_shallow', 'random_spot_shovel']; // divide random spots to metal detector chest & shallow & shovel
-  const itemCollections = Collection.collections;
-  const possibleCategories = [...new Set(MapBase.markers.map(({ category }) => category))]
-    // fossils categories => fossils_random, random => random_spot_metal & random_spot_shovel
-    .filter(category => !['coastal', 'oceanic', 'megafauna', 'random'].includes(category));
-  const categories = [
-    ...possibleCategories,
-    ...randomCategories,
-  ].sort((...args) => {
-    const [a, b] = args.map(element => {
-      const index = itemCollections.map(({ category }) => category).indexOf(element);
-      return index !== -1 ? index : itemCollections.length;
-    });
-    return a - b;
-  });
-  const savedColors = Object.assign(baseColors, JSON.parse(localStorage.getItem('rdr2collector.customMarkersColors') || localStorage.getItem('customMarkersColors')) || {});
-  const wrapper = document.createElement('div');
-  wrapper.id = 'custom-markers-colors';
-
-  categories.forEach(category => {
-    const snippet = document.createElement('div');
-    snippet.classList.add('input-container');
-    snippet.id = `${category}-custom-color`;
-    snippet.setAttribute('data-help', 'custom_marker_color');
-    
-    const label = document.createElement('label');
-    label.setAttribute('for', 'custom-marker-color');
-    label.setAttribute('data-text', `menu.${category}`);
-    snippet.appendChild(label);
-
-    const select = document.createElement('select');
-    select.classList.add('input-text');
-    select.classList.add('wide-select-menu');
-    select.id = `${category}-custom-marker-color`;
-
-    markerColors.forEach(color => {
-      const option = document.createElement('option');
-      option.value = color;
-      option.setAttribute('data-text', `map.user_pins.color.${color}`);
-      option.selected = savedColors[category] === color;
-      select.appendChild(option);
-    });
-
-    snippet.appendChild(select);
-    wrapper.appendChild(snippet);
-  });
-
-  const translatedContent = Language.translateDom(wrapper);
-  document.getElementById('custom-marker-color-modal').querySelector('#custom-colors').appendChild(translatedContent);
   customMarkerColorModal.show();
-  wrapper.querySelectorAll('.input-container').forEach(inputContainer => {
-    inputContainer.addEventListener('change', event => {
-        baseColors[event.target.id.split('-')[0]] = event.target.value;
-        localStorage.setItem('rdr2collector.customMarkersColors', JSON.stringify(baseColors));
-        MapBase.addMarkers();
-    });
-  });
 });
+
+if (isMobile()) {
+  searchHotkey.style.display = 'none';
+
+  Settings.overrideBrowserSearch = false;
+  overrideSearch.check = false;
+  overrideSearch.parentElement.parentElement.classList.add('disabled');
+  overrideSearch.parentElement.parentElement.disabled = true;
+}
 
 function filterMapMarkers() {
   uniqueSearchMarkers = [];
   let filterType = () => true;
   let enableMainCategory = true;
+  const searchInputVal = document.getElementById('search').value;
 
   if (Settings.filterType === 'none') {
-    if (document.getElementById('search').value)
-      MapBase.onSearch(document.getElementById('search').value);
+    const searchSet = new Set(
+      (searchInputVal || '')
+        .replace(/^[;\s]+|[;\s]+$/g, '')
+        .split(';')
+        .filter(Boolean)
+    );
+
+    if (searchSet.size)
+      MapBase.onSearch(searchInputVal, true);
     else
       uniqueSearchMarkers = MapBase.markers;
 
@@ -1273,4 +1385,146 @@ function loadFont(name, urls = {}) {
     document.fonts.add(fontFace);
     return fontFace;
   });
+}
+
+function isMobile() {
+  const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const hasTouchPoints = 'maxTouchPoints' in navigator && navigator.maxTouchPoints > 0;
+  const isMobileUAData = navigator.userAgentData ? navigator.userAgentData.mobile : false;
+  const isMobileUserAgent = /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  return isCoarsePointer || hasTouchPoints || isMobileUAData || isMobileUserAgent;
+}
+
+function detectPlatform() {
+  const { userAgentData, userAgent, vendor } = navigator;
+  const platform = userAgentData?.platform || userAgent || vendor || window.opera || '';
+  const platforms = {
+    macOS: /Macintosh|MacIntel|MacPPC|Mac68K|Mac OS X/i,
+    Windows: /Windows|Win32|Win64|WOW64|WinCE/i,
+    Android: /Android/i,
+    Linux: /Linux/i,
+  };
+  for (const [key, regex] of Object.entries(platforms)) {
+    if (regex.test(platform)) return key;
+  }
+
+  return 'other';
+}
+
+/**
+ * Converts placeholders within a translated string into corresponding HTML elements.
+ * This function processes a DOM element's innerHTML and replaces specific placeholder
+ * tokens (e.g., {↑}, {↓}, {Enter}) with the corresponding HTML representations provided
+ * in the placeholders object.
+ * 
+ * @param {HTMLElement} el - The DOM element containing the translated text with placeholders.
+ * @param {Object} placeholders - An object mapping placeholder tokens to their HTML representations.
+ *                                The keys are the placeholders and the values are the HTML strings.
+ * @returns {void}
+ * 
+ * @example
+ * const el = document.getElementById('query-suggestions-hotkeys');
+ * const placeholders = {
+ *   '↑': '<kbd class="hotkey">↑</kbd>',
+ *   '↓': '<kbd class="hotkey">↓</kbd>',
+ *   'Enter': '<kbd class="hotkey">Enter</kbd>'
+ * };
+ * placeholdersToHtml(el, placeholders);
+ * // The innerHTML of the element will be:
+ * // 'Search in suggestions, Press <kbd class="hotkey">↑</kbd> <kbd class="hotkey">↓</kbd> <kbd class="hotkey">Enter</kbd> for general search.'
+ */
+function placeholdersToHtml(el, placeholders) {
+  let html = el.innerHTML;
+  Object.entries(placeholders).forEach(
+    ([key, value]) => (html = html.split(`{${key}}`).join(value))
+  );
+  el.innerHTML = html;
+}
+
+/**
+ * Makes an element draggable.
+ *
+ * @param {HTMLElement} el - The element to make draggable.
+ * @param {Object} options - Configuration options for the draggable functionality.
+ * @param {string} options.storageKey - The key used to save the element's position in localStorage.
+ * @returns {Object} An object containing:
+ *  - `isDragging`: A function that returns a boolean indicating if the element is being dragged.
+ *  - `getDistanceMoved`: A function that returns the distance moved since the drag started.
+ */
+function draggify(el, { storageKey }) {
+  if (!el) {
+    console.error('Element not found');
+    return;
+  }
+
+  let isDragging = false;
+  let startX, startY, initialX, initialY;
+  let currentX = 0, currentY = 0;
+
+  const savePosition = () => {
+    const position = { x: currentX, y: currentY };
+    localStorage.setItem(storageKey, JSON.stringify(position));
+  };
+
+  const restorePosition = () => {
+    const savedPosition = localStorage.getItem(storageKey);
+    if (savedPosition) {
+      const { x, y } = JSON.parse(savedPosition);
+      currentX = x;
+      currentY = y;
+      el.style.transform = `translate(${x}px, ${y}px)`;
+    }
+  };
+
+  const onDragStart = (e) => {
+    isDragging = true;
+    startX = e.clientX || e.touches[0].clientX;
+    startY = e.clientY || e.touches[0].clientY;
+    initialX = currentX;
+    initialY = currentY;
+    el.style.transition = 'none';
+    el.style.cursor = 'grabbing';
+    requestAnimationFrame(updatePosition);
+  };
+
+  const onDragMove = (e) => {
+    if (!isDragging) return;
+    const clientX = e.clientX || e.touches[0].clientX;
+    const clientY = e.clientY || e.touches[0].clientY;
+    currentX = initialX + (clientX - startX);
+    currentY = initialY + (clientY - startY);
+  };
+
+  const onDragEnd = () => {
+    isDragging = false;
+    el.style.transition = '0.2s all';
+    el.style.cursor = 'grab';
+    savePosition();
+  };
+
+  const updatePosition = () => {
+    if (isDragging) {
+      el.style.transform = `translate(${currentX}px, ${currentY}px)`;
+      requestAnimationFrame(updatePosition);
+    }
+  };
+
+  el.addEventListener('pointerdown', onDragStart);
+  document.addEventListener('pointermove', onDragMove);
+  document.addEventListener('pointerup', onDragEnd);
+  document.addEventListener('pointercancel', onDragEnd);
+
+  el.addEventListener('touchstart', onDragStart);
+  document.addEventListener('touchmove', onDragMove);
+  document.addEventListener('touchend', onDragEnd);
+  document.addEventListener('touchcancel', onDragEnd);
+
+  restorePosition();
+
+  return {
+    isDragging: () => isDragging,
+    getDistanceMoved: () =>
+      Math.sqrt((currentX - initialX) ** 2 + (currentY - initialY) ** 2)
+  };
 }
