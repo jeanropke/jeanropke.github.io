@@ -102,8 +102,17 @@ class Collection extends BaseCollection {
   }
   static switchCycle(categoriesArray, cycle) {
     categoriesArray.forEach(category => {
-      document.querySelectorAll(`.input-cycle[name="${category}"]`).forEach(input => input.value = cycle);
-      Cycles.categories[category] = cycle;
+      document.querySelectorAll(`.input-cycle[name="${category}"]`).forEach(input => {
+        const min = parseInt(input.min);
+        const max = parseInt(input.max);
+        let validCycle = parseInt(cycle);
+  
+        if (isNaN(validCycle) || validCycle < min || validCycle > max)
+          validCycle = Math.min(Math.max(validCycle, min), max);
+  
+        input.value = validCycle;
+        Cycles.categories[category] = validCycle;
+      });
     });
   }
   static _installSettingsAndEventHandlers() {
@@ -157,7 +166,7 @@ class Collection extends BaseCollection {
             const changeAmount = etcL.contains('collection-sell') ? -1 : 1;
             collection.items.forEach(i => i.changeAmountWithSideEffects(changeAmount));
             collection.currentMarkers().forEach(marker => {
-              if (InventorySettings.autoEnableSoldItems && marker.item.amount === 0 && marker.isCollected) {
+              if (InventorySettings.autoEnableSoldItems && marker.item.amount === 0 && marker.isCollected && !MapBase.isSameUtcDay(marker.pickupTime)) {
                 MapBase.removeItemFromMap(marker.cycleName, marker.text, marker.subdata, marker.category, false);
               }
             });
@@ -181,8 +190,13 @@ class Collection extends BaseCollection {
         }, true);
 
         sideMenu.addEventListener('touchend', event => {
-          if (event.target.classList.contains('btn-light')) {
-            event.target.style.setProperty('--bs-btn-hover-bg', 'transparent');
+          const target = event.target;
+          const btnClasses = ['btn-light', 'btn-default'];
+          if (target.classList.contains('btn-light')) {
+            target.style.setProperty('border', '3px solid transparent');
+          }
+          if (btnClasses.some(cls => target.classList.contains(cls))) {
+            target.style.setProperty('filter', 'brightness(1)');
           }
           event.stopImmediatePropagation();
         }, true);

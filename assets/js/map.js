@@ -118,11 +118,11 @@ const MapBase = {
       maxZoom: this.maxZoom,
       zoomControl: false,
       crs: L.CRS.Simple,
+      zoomSnap: Settings.zoomSnap,
+      zoomDelta: Settings.zoomDelta,
+      wheelPxPerZoomLevel: Settings.wheelPxPerZoomLevel,
+      wheelDebounceTime: Settings.wheelDebounceTime,
       layers: [mapLayers[this.themeOverride || Settings.baseLayer]],
-      zoomSnap: 0,
-      zoomDelta: 0.5,
-      wheelPxPerZoomLevel: 70,
-      wheelDebounceTime: 150,
     }).setView([this.viewportX, this.viewportY], this.viewportZoom);
 
     MapBase.map.addControl(
@@ -196,6 +196,14 @@ const MapBase = {
       // Allow to load next scripts on API error
       return Promise.resolve();
     });
+  },
+
+  isSameUtcDay: function(timestamp1, timestamp2 = MapBase.mapTime().valueOf()) {
+    if (!timestamp1 || typeof timestamp1 !== 'number' || typeof timestamp2 !== 'number') {
+      return false;
+    }
+    const [date1, date2] = [timestamp1, timestamp2].map((time) => new Date(time).toISOUTCDateString());
+    return date1 === date2;
   },
 
   updateMapBoundaries: function() {
@@ -277,16 +285,6 @@ const MapBase = {
     addOverlay(key, value);
   });
     Layers.overlaysLayer.addTo(MapBase.map);
-  },
-
-  setColoris: function () {
-    Coloris({
-      el: '.coloris',
-      themeMode: 'dark',
-      swatchesOnly: true,
-      swatches: Object.keys(colorNameMap),
-      alpha: false,
-    });
   },
 
   setFallbackFonts: async function () {
@@ -376,7 +374,8 @@ const MapBase = {
     'use strict';
     uniqueSearchMarkers = MapBase.markers;
     MapBase.initFuse();
-    MapBase.setColoris();
+    Menu.updateTippy();
+    Menu.updateRangeTippy();
 
     // Preview mode.
     const previewParam = getParameterByName('q');
@@ -468,7 +467,7 @@ const MapBase = {
 
     localStorage.setItem('rdr2collector.date', date);
   },
-  
+
   initFuse: function() {
     const dataForSearch = MapBase.markers.map((marker) => ({
       itemId: marker.itemId,
@@ -775,24 +774,27 @@ const MapBase = {
 
   addCoordsOnMap: function (coords) {
     // Show clicked coordinates (like google maps)
+    const container = document.querySelector('.lat-lng-container');
+
     if (Settings.isCoordsOnClickEnabled) {
-      const container = document.querySelector('.lat-lng-container');
-      container.style.display = 'block';
-
-      const lat = parseFloat(coords.latlng.lat.toFixed(4));
-      const lng = parseFloat(coords.latlng.lng.toFixed(4));
-      const content = `
-        Latitude: ${lat}<br>
-        Longitude: ${lng}<br>
-        <hr>
-        <a href="javascript:void(0)"
-        onclick="Routes.setCustomRouteStart('${lat}', '${lng}')">${Language.get('routes.set_as_route_start')}</a><br>
-        <a href="javascript:void(0)"
-        onclick="Routes.setCustomRouteStart('${lat}', '${lng}', true)">${Language.get('routes.generate_route_now')}</a>`;
-
-      container.querySelector('p').innerHTML = content;
-      document.getElementById('lat-lng-container-close-button').addEventListener('click', function () {
-        container.style.display = 'none';
+      if (container.style.display = 'none') container.style.display = 'block';
+      container.title ||= Language.get('map.draggable');
+      draggableLatLngCtn ||= new PlainDraggable(container);
+      
+      const lat = coords.latlng.lat.toFixed(4);
+      const lng = coords.latlng.lng.toFixed(4);
+      document.querySelector('.lat-value').textContent = lat;
+      document.querySelector('.lng-value').textContent = lng;
+      ['click', 'touchend'].forEach((event) => {
+        document.getElementById('lat-lng-container-start').addEventListener((event), () => Routes.setCustomRouteStart(lat, lng), { once: true });
+        document.getElementById('lat-lng-container-generate').addEventListener((event), () => Routes.setCustomRouteStart(lat, lng, true), { once: true });
+        document.getElementById('lat-lng-container-close-button').addEventListener((event), () =>{ 
+          container.style.display = 'none';
+          if (draggableLatLngCtn) {
+            draggableLatLngCtn.remove();
+            draggableLatLngCtn = null;
+          }
+        }, { once: true });
       });
     }
 
@@ -805,6 +807,12 @@ const MapBase = {
   runOnDayChange: function () {
     // put here all functions that needs to be executed on day change
     MapBase.resetMarkersDaily();
+
+    for (let key in localStorage) {
+      if (key.startsWith('rdr2collector.pickup.')) {
+          localStorage.removeItem(key);
+      }
+    }
   },
 
   yieldingLoop: function (count, chunksize, callback, finished) {
