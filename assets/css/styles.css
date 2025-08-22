@@ -3201,47 +3201,9 @@ button.reload-nazar {
 .leaflet-zoomex-rightbottom .leaflet-zoomex-in {
     transform: rotate(90deg);
 }
-/*
+
 .menu-ad {
     display: none;
-}
-.sticky-ad {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    background: #222;
-    color: #fff;
-    text-align: center;
-    padding: 15px;
-    font-size: 18px;
-    z-index: 9999;
-    height: 117px;
-    display: none;
-}
-
-.sticky-ad button.close-btn {
-    position: absolute;
-    user-select: none;
-    top: -15px;
-    right: 5px;
-    background: #ff4d4d;
-    border: none;
-    color: #fff;
-    padding: 5px 10px;
-    cursor: pointer;
-    border-radius: 4px;
-    font-size: 14px;
-}
-
-@media (max-width: 768px) {
-  .sticky-ad {
-    display: block;
-  }
-  .padding-ad {
-      margin: 0;
-      padding-bottom: 117px;
-  }
 }
 
 @media (min-width: 768px) {
@@ -3249,4 +3211,3 @@ button.reload-nazar {
     display: block;
   }
 }
-*/
