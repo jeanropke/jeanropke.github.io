@@ -60,7 +60,7 @@
 </head>
 
 <body>
-  <aside class="side-menu">
+  <aside class="side-menu padding-ad">
     <div id="top-sticky">
       <div class="sticky-container">
         <h2 id="main-header">
@@ -112,9 +112,9 @@
         <div id="copy-search-link" class="input-action-copy" data-help="search_copy_link"></div>
       </div>
     </div>
-    <div>
+    <div class="menu-ad">
       <ins class="adsbygoogle"
-        style="display:inline-block;min-width:400px;max-width:970px;width:100%;height:90px"
+        style="display:inline-block;width:380px;height:280px"
         data-ad-client="ca-pub-8337816533364971"
         data-ad-slot="3475533274"
         data-ad-format="auto"
@@ -1259,7 +1259,7 @@
     <img id="day-cycle" class="hidden" data-help="sun_moon_indicator" src="#" alt="Daylight indicator">
   </div>
 
-  <div id="fme-container" style="display: none;">
+  <div id="fme-container" style="display: none;" class="padding-ad">
     <div id="next-general-event" class="fme-card">
       <img class="fme-image" id="next-general-image" />
       <div class="fme-body">
@@ -1278,7 +1278,7 @@
     </div>
   </div>
 
-  <main id="map">
+  <main id="map" class="padding-ad">
 
   </main>
 
@@ -1300,6 +1300,17 @@
 
   <div class="filter-alert" style="display: none;">
     Some markers are being hidden.
+  </div>
+
+   <div class="sticky-ad">
+    <ins class="adsbygoogle"
+     style="display:inline-block;width:350px;height:90px"
+     data-ad-client="ca-pub-8337816533364971"
+     data-ad-slot="2055149168"></ins>
+     <script>
+          (adsbygoogle = window.adsbygoogle || []).push({});
+      </script>
+    <button onclick="closeStickyAd()" class="close-btn">X</button>
   </div>
 
   <!-- Modals -->
@@ -1629,6 +1640,13 @@
     gtag('js', new Date());
 
     gtag('config', 'UA-39999584-4');
+
+    function closeStickyAd() {
+      document.querySelectorAll('.padding-ad').forEach(el => {
+        el.classList.remove('padding-ad');
+      });
+      document.querySelector('.sticky-ad').remove();
+    }
 
   </script>
 </body>
