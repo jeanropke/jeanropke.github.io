@@ -1,0 +1,17 @@
+{
+    "name":  "jeanropke-github-io",
+    "version":  "1.0.0",
+    "private":  true,
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "vite",
+                    "build":  "vite build",
+                    "preview":  "vite preview"
+                },
+    "engines":  {
+                    "node":  "\u003e=22.12.0"
+                },
+    "devDependencies":  {
+                            "vite":  "^8.3.5"
+                        }
+}

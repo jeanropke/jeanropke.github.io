@@ -17,3 +17,9 @@ rdo/
 # Remove map tiles from Github
 assets/maps/jpg
 assets/maps/webp
+# Vite build and local settings
+dist/
+*.local
+.env
+.env.*
+!.env.example
